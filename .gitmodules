@@ -1,0 +1,3 @@
+[submodule "themes/d3c3nt"]
+	path = themes/d3c3nt
+	url = git@github.com:FIGBERT/d3c3nt.git
