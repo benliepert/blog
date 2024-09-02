@@ -8,7 +8,7 @@ Tags: C++, Rust, Docker, CMake, cbindgen
 
 ---
 
-Recently, I realized after almost 2 years of tinkering with Rust, I hadn't played with the FFI to C or C++. This post covers a minimal example including cross-compilation via Docker. I plan to focus on the build configuration, as I haven't written any 'real' Rust code to call from C++, and there are lots of cbindgen examples online. This will be a quick post to get the foundational build elements working together. Tyler Weaver wrote a more comprehensive series [here](https://tylerjw.dev/posts/rust-cpp-interop/).
+Recently, I realized after almost 2 years of tinkering with Rust, I hadn't played with the FFI to C or C++. This post covers a minimal example including cross-compilation via Docker. I plan to focus on the build configuration, as I haven't written any 'real' Rust code to call from C++, and there are lots of cbindgen examples online. Tyler Weaver wrote a more comprehensive series [here](https://tylerjw.dev/posts/rust-cpp-interop/).
 
 > The complete source code for this post can be found [on Github](https://www.github.com/benliepert/post-1)
 
