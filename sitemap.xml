@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://benliepert.github.io/blog/</loc>
+    </url>
+    <url>
+        <loc>https://benliepert.github.io/blog/posts/</loc>
+    </url>
+    <url>
+        <loc>https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/</loc>
+        <lastmod>2024-08-27</lastmod>
+    </url>
+</urlset>

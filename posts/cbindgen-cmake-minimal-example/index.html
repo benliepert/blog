@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Calling Rust from C++: A minimal example :: </title>
+    <link rel="stylesheet" href="https://benliepert.github.io/blog/global.css">
+    <meta name="description" content="Calling Rust from C++, cross compilation with Docker">
+    <meta property="og:title" content="Calling Rust from C++: A minimal example :: ">
+    <meta property="og:description" content="Calling Rust from C++, cross compilation with Docker">
+    <meta property="og:type" content="website">
+    
+    <meta property="og:url" content="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/">
+    <link rel="canonical" href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/">
+    
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:creator" content="@">
+    <link rel="icon" href="">
+    <meta name="theme-color" content="#1F1E1E">
+  </head>
+  <body>
+    <header>
+      <nav>
+      
+        <a href="/blog/">ABOUT</a>
+      
+        <a href="/blog/posts/">POSTS</a>
+      
+      </nav>
+      <hr>
+    </header>
+    <main>
+      
+      <article>
+        <h1><a href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/">Calling Rust from C++: A minimal example</a></h1>
+        <small>
+          <time datetime="2024-08-27">August 27, 2024</time>
+          by <a href="https://benliepert.github.io/blog/">benliepert</a>
+        </small>
+        <p>Tags: C++, Rust, Docker, CMake, cbindgen</p>
+<hr />
+<p>Recently, I realized after almost 2 years of tinkering with Rust, I hadn't played with the FFI to C or C++. This post covers a minimal example including cross-compilation via Docker. I plan to focus on the build configuration, as I haven't written any 'real' Rust code to call from C++, and there are lots of cbindgen examples online. Tyler Weaver wrote a more comprehensive series <a href="https://tylerjw.dev/posts/rust-cpp-interop/">here</a>.</p>
+<blockquote>
+<p>The complete source code for this post can be found <a href="https://www.github.com/benliepert/post-1">on Github</a></p>
+</blockquote>
+<h2 id="sections">Sections</h2>
+<ul>
+<li><a href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/#rust">Rust</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/#c">C++</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/#cmake">CMake</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/#build">Build</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/cbindgen-cmake-minimal-example/#run">Run</a></li>
+</ul>
+<hr />
+<h1 id="rust">Rust</h1>
+<p>Let's start with a Rust lib crate called <code>rust_toy</code>: <code>cargo new --lib rust_toy</code>.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#6c7079;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#5f697a;">// rust_toy/src/lib.rs
+</span><span style="color:#abb2bf;">#[</span><span style="color:#eb6772;">no_mangle</span><span style="color:#abb2bf;">]
+</span><span style="color:#cd74e8;">pub extern </span><span style="color:#9acc76;">&quot;C&quot; </span><span style="color:#cd74e8;">fn </span><span style="color:#5cb3fa;">rust_function</span><span style="color:#abb2bf;">() {
+</span><span style="color:#abb2bf;">    println!(</span><span style="color:#9acc76;">&quot;Hello World from Rust!&quot;</span><span style="color:#abb2bf;">);
+</span><span style="color:#abb2bf;">}
+</span></code></pre>
+<p><a href="https://github.com/mozilla/cbindgen">cbindgen</a> is a tool that generates (unsafe) C bindings from Rust code. You can use its CLI or call it in a <code>build.rs</code> script for seamless integration with <code>cargo</code>. We're going to use it via <code>build.rs</code>, so let's include it as a build dependency.</p>
+<pre data-lang="toml" style="background-color:#2b303b;color:#6c7079;" class="language-toml "><code class="language-toml" data-lang="toml"><span style="font-style:italic;color:#5f697a;"># rust_toy/Cargo.toml
+</span><span style="color:#abb2bf;">[package]
+</span><span style="color:#eb6772;">name </span><span style="color:#abb2bf;">= </span><span style="color:#9acc76;">&quot;rust_toy&quot;
+</span><span style="color:#eb6772;">version </span><span style="color:#abb2bf;">= </span><span style="color:#9acc76;">&quot;0.1.0&quot;
+</span><span style="color:#eb6772;">edition </span><span style="color:#abb2bf;">= </span><span style="color:#9acc76;">&quot;2021&quot;
+</span><span style="color:#abb2bf;">
+</span><span style="color:#abb2bf;">[lib]
+</span><span style="font-style:italic;color:#5f697a;"># Create a c/cpp dynamic library. No rust specific metadata
+</span><span style="color:#eb6772;">crate-type </span><span style="color:#abb2bf;">= [</span><span style="color:#9acc76;">&quot;cdylib&quot;</span><span style="color:#abb2bf;">]
+</span><span style="font-style:italic;color:#5f697a;"># For a static library, use:
+</span><span style="font-style:italic;color:#5f697a;"># crate-type = [&quot;staticlib&quot;]
+</span><span style="color:#abb2bf;">
+</span><span style="color:#abb2bf;">[dependencies]
+</span><span style="color:#abb2bf;">
+</span><span style="color:#abb2bf;">[build-dependencies]
+</span><span style="font-style:italic;color:#5f697a;"># We&#39;re going to generate bindings in build.rs
+</span><span style="color:#eb6772;">cbindgen </span><span style="color:#abb2bf;">= </span><span style="color:#9acc76;">&quot;0.24.0&quot;
+</span></code></pre>
+<pre data-lang="rust" style="background-color:#2b303b;color:#6c7079;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#5f697a;">// rust_toy/build.rs
+</span><span style="color:#cd74e8;">extern crate</span><span style="color:#abb2bf;"> cbindgen;
+</span><span style="color:#cd74e8;">use </span><span style="color:#abb2bf;">std::env;
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">fn </span><span style="color:#5cb3fa;">main</span><span style="color:#abb2bf;">() {
+</span><span style="color:#abb2bf;">    </span><span style="color:#cd74e8;">let</span><span style="color:#abb2bf;"> crate_dir </span><span style="color:#adb7c9;">= </span><span style="color:#abb2bf;">env::var(</span><span style="color:#9acc76;">&quot;CARGO_MANIFEST_DIR&quot;</span><span style="color:#abb2bf;">).</span><span style="color:#5ebfcc;">unwrap</span><span style="color:#abb2bf;">();
+</span><span style="color:#abb2bf;">
+</span><span style="color:#abb2bf;">    cbindgen::Builder::new()
+</span><span style="color:#abb2bf;">      .</span><span style="color:#5ebfcc;">with_crate</span><span style="color:#abb2bf;">(crate_dir)
+</span><span style="color:#abb2bf;">      </span><span style="font-style:italic;color:#5f697a;">// Other language options are &#39;C&#39; and &#39;Cython&#39;
+</span><span style="color:#abb2bf;">      .</span><span style="color:#5ebfcc;">with_language</span><span style="color:#abb2bf;">(cbindgen::Language::Cxx)
+</span><span style="color:#abb2bf;">      .</span><span style="color:#5ebfcc;">generate</span><span style="color:#abb2bf;">()
+</span><span style="color:#abb2bf;">      .</span><span style="color:#5ebfcc;">expect</span><span style="color:#abb2bf;">(</span><span style="color:#9acc76;">&quot;Unable to generate bindings&quot;</span><span style="color:#abb2bf;">)
+</span><span style="color:#abb2bf;">      </span><span style="font-style:italic;color:#5f697a;">// This is the file where the bindings will be generated
+</span><span style="color:#abb2bf;">      .</span><span style="color:#5ebfcc;">write_to_file</span><span style="color:#abb2bf;">(</span><span style="color:#9acc76;">&quot;include/rust_toy.h&quot;</span><span style="color:#abb2bf;">);
+</span><span style="color:#abb2bf;">
+</span><span style="color:#abb2bf;">    </span><span style="font-style:italic;color:#5f697a;">// cargo will rerun this file if the lib file changes
+</span><span style="color:#abb2bf;">    println!(</span><span style="color:#9acc76;">&quot;cargo:rerun-if-changed=src/lib.rs&quot;</span><span style="color:#abb2bf;">);
+</span><span style="color:#abb2bf;">}
+</span></code></pre>
+<p>One curveball for my use case is that I want to cross compile for armv7. So we need to tell cargo to use the relevant linker when compiling for the armv7 target we'll be using:</p>
+<pre data-lang="toml" style="background-color:#2b303b;color:#6c7079;" class="language-toml "><code class="language-toml" data-lang="toml"><span style="font-style:italic;color:#5f697a;"># rust_toy/.cargo/config.toml
+</span><span style="color:#abb2bf;">[target.armv7-unknown-linux-gnueabihf]
+</span><span style="color:#eb6772;">linker </span><span style="color:#abb2bf;">= </span><span style="color:#9acc76;">&quot;arm-linux-gnueabihf-g++&quot;
+</span></code></pre>
+<p>Note that this is a new file, not the usual <code>Cargo.toml</code>. This is a quirk of <code>cargo</code>'s configuration management. You can read about others <a href="https://towardsdatascience.com/nine-rust-cargo-toml-wats-and-wat-nots-1e5e02e41648">here</a>.</p>
+<blockquote>
+<p>The <code>cbindgen::Language</code> you use should match the linker (<code>Cxx</code> -&gt; g++, <code>C</code> -&gt; gcc, etc). And this should match the language you're intending to use Rust from. Even if you have a cpp file that really only uses the C subset of the language, if you're compiling using a C++ compiler you need the Rust build config to match (otherwise you'll spend hours debugging the simple mismatch, and end up writing a blog post about it).</p>
+</blockquote>
+<hr />
+<h1 id="c">C++</h1>
+<p>We need some C++ code to call the Rust. Let's make something really simple:</p>
+<pre data-lang="cpp" style="background-color:#2b303b;color:#6c7079;" class="language-cpp "><code class="language-cpp" data-lang="cpp"><span style="font-style:italic;color:#5f697a;">// test.cpp
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;">// cbindgen will create this file for us
+</span><span style="font-style:italic;color:#5f697a;">// we&#39;ll make sure it&#39;s accessible via cmake
+</span><span style="color:#cd74e8;">#include </span><span style="color:#9acc76;">&quot;rust_toy.h&quot;
+</span><span style="color:#cd74e8;">int </span><span style="color:#5cb3fa;">main</span><span style="color:#abb2bf;">() {
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">rust_function</span><span style="color:#abb2bf;">();
+</span><span style="color:#abb2bf;">    </span><span style="color:#cd74e8;">return </span><span style="color:#db9d63;">0</span><span style="color:#abb2bf;">;
+</span><span style="color:#abb2bf;">}
+</span></code></pre>
+<hr />
+<h1 id="cmake">CMake</h1>
+<p>I'm not a cmake expert, so I won't go too deep into the configuration. Generally speaking, you'll want something like this:</p>
+<pre data-lang="cmake" style="background-color:#2b303b;color:#6c7079;" class="language-cmake "><code class="language-cmake" data-lang="cmake"><span style="color:#5ebfcc;">cmake_minimum_required</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">VERSION </span><span style="color:#abb2bf;">3.16)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Cross compilation setup ---------------------------------
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">CMAKE_SYSTEM_NAME </span><span style="color:#abb2bf;">Linux)
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">CMAKE_SYSTEM_PROCESSOR </span><span style="color:#abb2bf;">armhf)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># which compilers to use for C++ cross-compilation
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">CMAKE_CXX_COMPILER </span><span style="color:#abb2bf;">arm-linux-gnueabihf-g++)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># where is the target environment located?
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">CMAKE_FIND_ROOT_PATH </span><span style="color:#abb2bf;">/usr/lib/arm-linux-gnueabihf/)
+</span><span style="font-style:italic;color:#5f697a;"># ---------------------------------------------------------
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Build artifacts will go in these locations
+</span><span style="font-style:italic;color:#5f697a;"># Not necessary for this simple project, but useful when you have more
+</span><span style="font-style:italic;color:#5f697a;"># artifacts and want to copy them all to a runtime dockerfile easily
+</span><span style="color:#5ebfcc;">SET</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">CMAKE_LIBRARY_OUTPUT_DIRECTORY </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">CMAKE_BINARY_DIR</span><span style="color:#abb2bf;">}/lib)
+</span><span style="color:#5ebfcc;">SET</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">CMAKE_RUNTIME_OUTPUT_DIRECTORY </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">CMAKE_BINARY_DIR</span><span style="color:#abb2bf;">}/bin)
+</span><span style="color:#abb2bf;">
+</span><span style="color:#5ebfcc;">PROJECT</span><span style="color:#abb2bf;">(tester)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># The name of the C++ file we&#39;re building
+</span><span style="color:#5ebfcc;">SET</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">SOURCES </span><span style="color:#abb2bf;">test.cpp)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Rust specific setup -------------------------------------
+</span><span style="font-style:italic;color:#5f697a;"># Where is the crate we&#39;re building?
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">RUST_PROJECT_DIR </span><span style="color:#9acc76;">&quot;${</span><span style="color:#eb6772;">CMAKE_SOURCE_DIR</span><span style="color:#9acc76;">}/rust_toy&quot;</span><span style="color:#abb2bf;">)
+</span><span style="font-style:italic;color:#5f697a;"># The profile to use when building the crate
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">RUST_BUILD_MODE </span><span style="color:#9acc76;">&quot;release&quot;</span><span style="color:#abb2bf;">)
+</span><span style="font-style:italic;color:#5f697a;"># The shared object (so) we&#39;re creating
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">RUST_SO_NAME </span><span style="color:#9acc76;">&quot;librust_toy.so&quot;</span><span style="color:#abb2bf;">)
+</span><span style="font-style:italic;color:#5f697a;"># Where is the object initially created?
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">RUST_SO </span><span style="color:#9acc76;">&quot;${</span><span style="color:#eb6772;">RUST_PROJECT_DIR</span><span style="color:#9acc76;">}/target/armv7-unknown-linux-gnueabihf/${</span><span style="color:#eb6772;">RUST_BUILD_MODE</span><span style="color:#9acc76;">}/${</span><span style="color:#eb6772;">RUST_SO_NAME</span><span style="color:#9acc76;">}&quot;</span><span style="color:#abb2bf;">)
+</span><span style="font-style:italic;color:#5f697a;"># The common location it will live
+</span><span style="color:#5ebfcc;">set</span><span style="color:#abb2bf;">(</span><span style="color:#eb6772;">RUST_SO_COMMON </span><span style="color:#9acc76;">&quot;${</span><span style="color:#eb6772;">CMAKE_LIBRARY_OUTPUT_DIRECTORY</span><span style="color:#9acc76;">}/${</span><span style="color:#eb6772;">RUST_SO_NAME</span><span style="color:#9acc76;">}&quot;</span><span style="color:#abb2bf;">)
+</span><span style="color:#abb2bf;">
+</span><span style="color:#5ebfcc;">add_custom_command</span><span style="color:#abb2bf;">(
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">OUTPUT </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">RUST_SO_COMMON</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">    </span><span style="font-style:italic;color:#5f697a;"># Build the rust code
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">COMMAND </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">CMAKE_COMMAND</span><span style="color:#abb2bf;">} -E env cargo build --${</span><span style="color:#eb6772;">RUST_BUILD_MODE</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">             --manifest-path ${</span><span style="color:#eb6772;">RUST_PROJECT_DIR</span><span style="color:#abb2bf;">}/Cargo.toml
+</span><span style="color:#abb2bf;">             --target armv7-unknown-linux-gnueabihf
+</span><span style="color:#abb2bf;">    </span><span style="font-style:italic;color:#5f697a;"># Copy the library to a common location
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">COMMAND </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">CMAKE_COMMAND</span><span style="color:#abb2bf;">} -E copy ${</span><span style="color:#eb6772;">RUST_SO</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">            ${</span><span style="color:#eb6772;">RUST_SO_COMMON</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">WORKING_DIRECTORY </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">RUST_PROJECT_DIR</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">COMMENT </span><span style="color:#9acc76;">&quot;Building Rust project with cargo&quot;
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">VERBATIM
+</span><span style="color:#abb2bf;">)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Add a target for the Rust library (this will ensure the Rust build happens)
+</span><span style="color:#5ebfcc;">add_custom_target</span><span style="color:#abb2bf;">(rust_build </span><span style="color:#eb6772;">ALL
+</span><span style="color:#abb2bf;">    </span><span style="color:#eb6772;">DEPENDS </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">RUST_SO_COMMON</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># so we can seamlessly link against this lib, we tell cmake to find it where we copied it (where the other libs live)
+</span><span style="color:#5ebfcc;">add_library</span><span style="color:#abb2bf;">(rust_toy </span><span style="color:#eb6772;">SHARED IMPORTED</span><span style="color:#abb2bf;">)
+</span><span style="color:#5ebfcc;">set_target_properties</span><span style="color:#abb2bf;">(rust_toy </span><span style="color:#eb6772;">PROPERTIES
+</span><span style="color:#abb2bf;">    IMPORTED_LOCATION ${</span><span style="color:#eb6772;">CMAKE_LIBRARY_OUTPUT_DIRECTORY</span><span style="color:#abb2bf;">}/${</span><span style="color:#eb6772;">RUST_SO_NAME</span><span style="color:#abb2bf;">}
+</span><span style="color:#abb2bf;">)
+</span><span style="font-style:italic;color:#5f697a;"># ---------------------------------------------------------
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># The executable we&#39;re building, and its sources
+</span><span style="color:#5ebfcc;">ADD_EXECUTABLE</span><span style="color:#abb2bf;">(test ${</span><span style="color:#eb6772;">SOURCES</span><span style="color:#abb2bf;">})
+</span><span style="font-style:italic;color:#5f697a;"># Our exe depends on the rust_build custom target, which will build the .so we need
+</span><span style="color:#5ebfcc;">add_dependencies</span><span style="color:#abb2bf;">(test rust_build)
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Link against the rust library, since we use it in test.cpp
+</span><span style="color:#5ebfcc;">TARGET_LINK_LIBRARIES</span><span style="color:#abb2bf;">(test rust_toy)
+</span><span style="color:#abb2bf;">
+</span><span style="color:#5ebfcc;">TARGET_INCLUDE_DIRECTORIES</span><span style="color:#abb2bf;">(test </span><span style="color:#eb6772;">PRIVATE </span><span style="color:#abb2bf;">${</span><span style="color:#eb6772;">RUST_PROJECT_DIR</span><span style="color:#abb2bf;">}/include)
+</span></code></pre>
+<p>It's certainly a chore writing CMake after using <code>cargo</code>, but that's not the point of this post.</p>
+<hr />
+<h2 id="build">Build</h2>
+<p>I'm using <code>docker</code> to build, as I can't natively compile for armv7. A common way to divy this up is with:</p>
+<ul>
+<li>A build container, which contains all your build dependencies, and is responsible for building a deployable executable/libraries</li>
+<li>A runtime container, which contains runtime dependencies and your executable/libraries.</li>
+</ul>
+<p>This can be accomplished using different stages in Docker (if you've seen <code>FROM xyz as builder</code>, that's a stage), but I split it into 2 dockerfiles for clarity.</p>
+<pre data-lang="dockerfile" style="background-color:#2b303b;color:#6c7079;" class="language-dockerfile "><code class="language-dockerfile" data-lang="dockerfile"><span style="font-style:italic;color:#5f697a;"># Dockerfile.local_build
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">FROM</span><span style="color:#abb2bf;"> torizon/debian-cross-toolchain-armhf:3-bookworm
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Add build dependencies
+</span><span style="color:#cd74e8;">RUN </span><span style="color:#abb2bf;">apt-get update &amp;&amp; dpkg --add-architecture armhf &amp;&amp; \
+</span><span style="color:#abb2bf;">	apt-get install -y --no-install-recommends \
+</span><span style="color:#abb2bf;">        cmake \
+</span><span style="color:#abb2bf;">        gcc \
+</span><span style="color:#abb2bf;">        libc6-dev \
+</span><span style="color:#abb2bf;">	&amp;&amp; apt-get clean &amp;&amp; apt-get autoremove &amp;&amp; rm -rf /var/lib/apt/lists/* 
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">USER </span><span style="color:#abb2bf;">torizon
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">RUN </span><span style="color:#abb2bf;">curl --proto </span><span style="color:#9acc76;">&#39;=https&#39;</span><span style="color:#abb2bf;"> --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+</span><span style="color:#abb2bf;">        &amp;&amp; . $HOME/.cargo/env \
+</span><span style="color:#abb2bf;">        &amp;&amp; rustup target add armv7-unknown-linux-gnueabihf
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># make our rust builds colorful
+</span><span style="color:#cd74e8;">ENV </span><span style="color:#abb2bf;">CARGO_TERM_COLOR=always
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">WORKDIR </span><span style="color:#abb2bf;">/build
+</span><span style="font-style:italic;color:#5f697a;"># The actual build command. Configure and run cmake using all our CPUs
+</span><span style="font-style:italic;color:#5f697a;"># Note that sourcing cargo is necessary to have access to cargo.
+</span><span style="font-style:italic;color:#5f697a;"># That isn&#39;t an issue if you use a &#39;Rust&#39; base docker container
+</span><span style="color:#adb7c9;">ENTRYPOINT </span><span style="color:#abb2bf;">. </span><span style="color:#9acc76;">&quot;$HOME/.cargo/env&quot;</span><span style="color:#abb2bf;"> &amp;&amp; \
+</span><span style="color:#abb2bf;">    cmake . -B build -DCMAKE_BUILD_TYPE=Debug &amp;&amp; \
+</span><span style="color:#abb2bf;">    cd build &amp;&amp; make -j $(nproc)
+</span></code></pre>
+<p>Notice that this image definition doesn't contain any of our code. That's because we're going to map the source code in with a volume mount at runtime. The build will be performed against our local directory, meaning build artifacts will be preserved between builds and there's no costly copy operation.</p>
+<hr />
+<h1 id="run">Run</h1>
+<p>You could copy the <code>test</code> executable and <code>librust_toy.so</code> directly to an armv7 system to run it, but I don't have one so I'm going to use a docker container. Just like an actual arm system, we only need to copy the final C++ executable and the Rust shared library</p>
+<pre data-lang="dockerfile" style="background-color:#2b303b;color:#6c7079;" class="language-dockerfile "><code class="language-dockerfile" data-lang="dockerfile"><span style="font-style:italic;color:#5f697a;"># Dockerfile.local_run
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">FROM</span><span style="color:#abb2bf;"> --platform=linux/arm/v7 torizon/debian:3-bookworm
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">USER </span><span style="color:#abb2bf;">torizon
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Copy the main executable in
+</span><span style="color:#cd74e8;">COPY</span><span style="color:#abb2bf;"> build/bin/test /app/test
+</span><span style="font-style:italic;color:#5f697a;"># Copy all libraries in. Our exe needs these since it was linked against it
+</span><span style="color:#cd74e8;">COPY</span><span style="color:#abb2bf;"> build/lib/* /usr/lib/
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Tell the main executable to run automatically
+</span><span style="color:#adb7c9;">ENTRYPOINT </span><span style="color:#9acc76;">&quot;/app/test&quot;
+</span></code></pre>
+<p>Now use the following commands to build and run the application locally!</p>
+<pre data-lang="sh" style="background-color:#2b303b;color:#6c7079;" class="language-sh "><code class="language-sh" data-lang="sh"><span style="font-style:italic;color:#5f697a;"># Build the container required to build the test app
+</span><span style="color:#eb6772;">docker</span><span style="color:#abb2bf;"> build</span><span style="color:#eb6772;"> -f</span><span style="color:#abb2bf;"> Dockerfile.local_build</span><span style="color:#eb6772;"> -t</span><span style="color:#abb2bf;"> build-image .
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Build the test application. Note the current directory mount
+</span><span style="font-style:italic;color:#5f697a;"># Our CMake command in the ENTRYPOINT of Dockerfile.local_build
+</span><span style="font-style:italic;color:#5f697a;"># is expecting the source to be here
+</span><span style="color:#eb6772;">docker</span><span style="color:#abb2bf;"> run</span><span style="color:#eb6772;"> -v </span><span style="color:#abb2bf;">$(</span><span style="color:#eb6772;">pwd</span><span style="color:#abb2bf;">):/build build-image
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Build the final runtime container
+</span><span style="color:#eb6772;">docker</span><span style="color:#abb2bf;"> build</span><span style="color:#eb6772;"> -f</span><span style="color:#abb2bf;"> Dockerfile.local_run</span><span style="color:#eb6772;"> -t</span><span style="color:#abb2bf;"> run-image .
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;"># Run the app locally inside of the runtime container
+</span><span style="color:#eb6772;">docker</span><span style="color:#abb2bf;"> run</span><span style="color:#eb6772;"> --rm</span><span style="color:#abb2bf;"> run-image
+</span></code></pre>
+<p>I've added a justfile to the repository as well if you'd like to use the <a href="https://github.com/casey/just"><code>just</code></a> command runner.
+You should see the following output. I got a warning since I'm running on an x86_64 machine, but you wouldn't see this when running on an armv7 platform like a Raspberry Pi.</p>
+<pre data-lang="sh" style="background-color:#2b303b;color:#6c7079;" class="language-sh "><code class="language-sh" data-lang="sh"><span style="color:#eb6772;">WARNING:</span><span style="color:#abb2bf;"> The requested image</span><span style="color:#9acc76;">&#39;s platform (linux/arm/v7) does not match the detected host platform (linux/amd64/v3) and no specific platform was requested
+</span><span style="color:#9acc76;">Hello World from Rust!
+</span></code></pre>
+
+      </article>
+
+    </main>
+  </body>
+</html>
