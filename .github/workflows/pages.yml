@@ -1,8 +1,13 @@
-# On every push this script is executed
-on: push
+on:
+  push:
+    branches:
+      - main
+
 name: Build and deploy GH Pages
+
 permissions:
   contents: write # for committing to gh-pages branch
+
 jobs:
   build:
     runs-on: ubuntu-latest
