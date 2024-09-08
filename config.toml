@@ -20,9 +20,13 @@ highlight_theme = "one-dark"
 [extra]
 # Put all your custom variables here
 
+  # d3_nav = [
+  #   { name = "ABOUT", path = "/blog/" },
+  #   { name = "POSTS", path = "/blog/posts/" },
+  # ]
   d3_nav = [
-    { name = "ABOUT", path = "/blog/" },
-    { name = "POSTS", path = "/blog/posts/" },
+    { name = "ABOUT", path = "/" },
+    { name = "POSTS", path = "/posts/" },
   ]
   d3_author = "benliepert"
 
