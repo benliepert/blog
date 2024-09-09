@@ -43,10 +43,12 @@ effectively ignoring the offset by only taking the first element of the tuple re
 Let's build the code again with this change. 
 
 ```s
+...
 [2024-09-04T17:08:46Z DEBUG re_viewer_context::store_hub] Cloning Welcome screen as f1690a39-5c05-430e-a022-976e2a49fa9c the active blueprint for Welcome screen to Welcome screen
 
 thread 'main' panicked at 'assertion failed: size.x >= 0.0 && size.y >= 0.0'
 egui/src/layout.rs:395
+...
 ```
 Uh oh. This persisted after a `cargo clean` and a rebuild, so I suspected Rerun was storing state on disk and loading it in as the app started. This state was probably corrupted by my impolite ctrl-c. It turns out Rerun stores UI state in something called a blueprint, I added a print statement to the code that loads blueprints to find the path to the file, and deleted it. This resolved the panic. 
 
@@ -64,15 +66,26 @@ With the panic resolved, I opened a PR. I heard back from Emil (Rerun co-founder
 
 Okay, so nonzero offsets are a problem. But I still didn't understand what an offset was here. Interestingly, there was an example of using .iter().collect() on a _different_ macro in this file, which I'll explain in a moment. Overall, his comment made sense at a high level, but I realized I'd need to dig into the unfamiliar context of this change to do it correctly.
 
+
 # Testing
-I've modified the macros, but how do I test them? Rerun is huge, I wanted to avoid editing a main file somewhere with some test code and having to rebuild a ton of stuff when I really only needed to play with the `re_types` crate. So I created a binary crate and added a dependency to my local version of the `re_types` crate:
+I needed to figure out whether the offset can be non-zero even if the array was a standard layoyut. Rerun is huge, so I wanted to avoid editing a main file somewhere with some test code and having to rebuild a ton of stuff when I really only needed to play with the `re_types` crate. So I created a binary crate and added a dependency to my local version of the `re_types` crate:
 ```toml
 [dependencies]
 re_types = { path = "../rerun/crates/store/re_types"}
 ```
 Now I can play around with the new macros with minimal churn.
 
-Creating a bin project to investigate 
+I eventually arrived at the following test code to prove that an array can have a standard layout but a nonzero offset. The key here is slicing into an existing owned array - if you make a slice and then take a clone, the offset will reset to zero.
+```rust
+use ndarray::{Array, s};
+// create a 4 x 4 array with the numbers [0, 15]
+let array = Array::from_iter(0..16).into_shape_with_order((4, 4)).unwrap();
+// slice off the first row. We're only looking at the last 3 rows
+let sliced_array = array.slice_move(s![1.., ..]);
+assert!(sliced_array.is_standard_layout());
+let (_, offset) = sliced_array.into_raw_vec_and_offset();
+assert!(offset.unwrap() > 0);
+```
 
 # My (actual) first open source contribution
 
