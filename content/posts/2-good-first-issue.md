@@ -8,16 +8,17 @@ date = 2024-09-08
 - [ ] (once finalized) properly capitalize section names & links
     - Maybe call Learnings "closing" or "conclusion"
 - [ ] make sure you revert/don't commit config.toml change before publishing
+- [ ] what is an offset? what is a layout? what is a tensor?
 
 It's a goal of mine to make an open source contribution this year. I've had my eyes on [Rerun](https://rerun.io/) for a while, as it's built using [egui](https://github.com/emilk/egui/), which I've used in a number of projects the past few years [^1] [^2]. Rerun's visualizations are fascinating and, like egui, compile to WASM and can run on the web (see the [browser demo](https://rerun.io/viewer) examples). Their [blog post](https://rerun.io/blog/rosbag) on the Rosbag format stood out to me for its quality, reminding me of the home-grown telemetry system we use at 908 Devices and inspiring ideas for future improvements.
 
 ## Sections
 - [Finding an Issue](#finding-an-issue)
-- [Getting started](#getting-started)
-- [A naive solution](#a-naive-solution)
-- [A panic](#a-panic)
-- [My (actual) first open source contribution](#my-actual-first-open-source-contribution)
-- [Learnings](#learnings)
+- [Getting Started](#getting-started)
+- [A Naive Solution](#a-naive-solution)
+- [A Panic](#a-panic)
+- [Testing](#testing)
+- [Conclusion](#conclusion)
 
 # Finding an Issue
 At the time of writing, there were 959 open issues in the [Rerun repository](https://github.com/rerun-io/rerun) and 13 open with the "good first issue" label. Only a few hadn't already received attention, including [#7157 Update `ndarray`](https://github.com/rerun-io/rerun/issues/7157). Cool, a major version bump for a dependency that deprecated some functions.
@@ -29,8 +30,8 @@ First I wanted to get the project building, bump the `ndarray` version, and see 
 
 I updated the `ndarray` version from 0.15 to 0.16 and rebuilt. There were a couple deprecations, but I'll focus on the deprecation of `Array::into_raw_vec()` in favor of `Array::into_raw_vec_and_offset()`.
 
-# A naive solution
-The function is used in a macro on `TensorData`. I haven't written more than the simplest Rust macros, nor do I actually know what a tensor is despite having heard of it in e.g. TensorFlow. Well, the new function returns a tuple containing the raw vector and an offset (whatever that is), and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to
+# A Naive Solution
+The function is used in a macro on `TensorData`. I haven't written more than the simplest Rust macros, nor do I actually know what a tensor is despite having heard of it in e.g. TensorFlow. Well, the new function returns a tuple containing the raw vector and an offset (whatever that is), and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:
 ```diff
 -     buffer: TensorBuffer::$variant(value.to_owned().into_raw_vec().into()),
 +     buffer: TensorBuffer::$variant(
@@ -38,7 +39,7 @@ The function is used in a macro on `TensorData`. I haven't written more than the
 ```
 effectively ignoring the offset by only taking the first element of the tuple returned. I still had the rerun viewer running from my initial build, so I ctrl-c'd out of it on the command line.
 
-# A panic
+# A Panic
 
 Let's build the code again with this change. 
 
@@ -50,11 +51,11 @@ thread 'main' panicked at 'assertion failed: size.x >= 0.0 && size.y >= 0.0'
 egui/src/layout.rs:395
 ...
 ```
-Uh oh. This persisted after a `cargo clean` and a rebuild, so I suspected Rerun was storing state on disk and loading it in as the app started. This state was probably corrupted by my impolite ctrl-c. It turns out Rerun stores UI state in something called a blueprint, I added a print statement to the code that loads blueprints to find the path to the file, and deleted it. This resolved the panic. 
+Uh oh. This persisted after a `cargo clean` and a rebuild, so I suspected Rerun was storing state on disk and loading it in as the app started. This state was probably corrupted by my impolite ctrl-c. It turns out Rerun stores UI state in something called a blueprint, I added a print statement to the code that loads blueprints to find the path to the blueprint file, and deleted it. This resolved the panic. 
 
 I should have preserved the file and created a ticket for reproduction. The panic itself was down in the egui layout code, and traced back up to adding a clickable website link on the Rerun top panel. As far as I could tell, the image itself was sized fine, but it was being placed in an area of negative size.
 
-# Solving continued
+# Solving Continued
 With the panic resolved, I opened a PR. I heard back from Emil (Rerun co-founder & egui creator) within a day:
 
 > We shouldn't ignore the offset. If it is non-zero, we may have a problem.
@@ -64,18 +65,23 @@ With the panic resolved, I opened a PR. I heard back from Emil (Rerun co-founder
 >
 > — <cite>emilk</cite>
 
-Okay, so nonzero offsets are a problem. But I still didn't understand what an offset was here. Interestingly, there was an example of using .iter().collect() on a _different_ macro in this file, which I'll explain in a moment. Overall, his comment made sense at a high level, but I realized I'd need to dig into the unfamiliar context of this change to do it correctly.
+Okay, so nonzero offsets are a problem. But I still didn't understand what an offset was here. Interestingly, there was an example of using .iter().collect() on a _different_ macro in this file, which I'll explain in a moment. Overall, his comment made sense at a high level, but I realized I'd need to dig in.
 
+# Definitions
+Before moving forward, I got an understanding of what an offset and standard layout are in this context.
+
+- Offset:
+- Standard Layout:
 
 # Testing
-I needed to figure out whether the offset can be non-zero even if the array was a standard layoyut. Rerun is huge, so I wanted to avoid editing a main file somewhere with some test code and having to rebuild a ton of stuff when I really only needed to play with the `re_types` crate. So I created a binary crate and added a dependency to my local version of the `re_types` crate:
+I needed to figure out whether the offset can be non-zero even if the array was a standard layoyut. Rerun is huge, so I wanted to avoid adding test code to a main file and having to rebuild a ton of stuff when I really only needed to play with the `re_types` crate. So I created a binary crate and added a dependency to my local version of the `re_types` crate:
 ```toml
 [dependencies]
 re_types = { path = "../rerun/crates/store/re_types"}
 ```
 Now I can play around with the new macros with minimal churn.
 
-I eventually arrived at the following test code to prove that an array can have a standard layout but a nonzero offset. The key here is slicing into an existing owned array - if you make a slice and then take a clone, the offset will reset to zero.
+I eventually arrived at the following test code to prove that an array can have a standard layout but a nonzero offset. The key here is slicing into an existing owned array - if you make a slice and then take a clone, the offset will reset to zero. Since we're slicing in to a larger data structure, starting at the second row, the offset is nonzero.
 ```rust
 use ndarray::{Array, s};
 // create a 4 x 4 array with the numbers [0, 15]
@@ -87,13 +93,15 @@ let (_, offset) = sliced_array.into_raw_vec_and_offset();
 assert!(offset.unwrap() > 0);
 ```
 
-# My (actual) first open source contribution
+While investigating the above code, I found a mistake in the documentation for `ndarray::Array::into_raw_vec_and_offset()`, which stated that the function would return 0 if the array was empty. That didn't make sense - when would the function return `None` then? It turns out the function _does_ return `None` if the array is empty, as the documentation for a helper function confirmed. I created a [PR](https://github.com/rust-ndarray/ndarray/pull/1432) which was promptly merged.
 
-Talk about finding the documentation error in `ndarray`
+Now that I'd proven we could have a standard layout array with nonzero offset, it was time to update the macros that used the outdated functions and add test cases.
 
-# Learnings
+code summary/snippets and test cases
 
-I went into this fix with a false sense of security. Rerun as a whole, let alone Tensors and macros, were unfamiliar, and I expected to keep them at arms length. Increment a version, read the docs to make sure I replace the necessary functions correctly, make sure the tests pass, and move on. This still turned out to be a great first issue as it was well matched to my current skill level while still being challenging.
+# Conclusion
+
+I went into this fix with a false sense of security. Rerun as a whole, let alone Tensors and macros, were unfamiliar, and I expected to keep them at arms length. Increment a version, read the docs to make sure I replace the necessary functions correctly, make sure the tests pass, and move on. I should have taken more time up front to faimiliarize myself with the offset concept - ignoring it previously could have been a mistake after all. This still turned out to be a great first issue as it was well matched to my current skill level while still being challenging.
 
 A big thanks to Emil for egui, Rerun, and his prompt, intelligent responses despite my inexperience in open source. I'm sure I'll be back to contribute more.
 
