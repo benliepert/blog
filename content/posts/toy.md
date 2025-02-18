@@ -60,8 +60,13 @@ High level topics:
                     - Passed to fragment shader
         - fragment shader (runs second)
             - Operates on fragment (pixels)
-            - Computes final color & other attributes
-            -
+            - Computes final color, depth (for depth testing), stencil values, etc
+            - How does it do that?
+                - Samples textures to apply images/patterns to a surface
+                - Compute how light interacts with the surface
+                - Modifies a color (tinting, grayscale, color grading)
+                - Special effects (fog, transparency, cel shading)
+                - Post-processing (blur, edge detection)
         - Per-fragment operations (typical order):
             - Pixel ownership test
                 - Don't render pixels that are obscured by another window/off screen
@@ -78,3 +83,4 @@ High level topics:
                 - used to smooth gradients in a low-color-depth display
             - Logic operations
                 - Rare. AND/OR/XOR fragment color with the framebuffer color
+- Code/WGSL walkthrough
