@@ -178,7 +178,7 @@ I used the same underlying data for both tests, so it's implied that all `Tensor
 
 # Conclusion
 
-This turned out to be a great first issue as it was well matched to my current skill level while still being challenging and pushing me to learn a few things outside of my comfort zone.
+This turned out to be a great first issue as it was well matched to my current skill level while still being challenging and pushing me to learn a few things outside of my comfort zone. In retrospect I shouldn't have initially assumed the existing functionality was sufficient - there were a couple bugs and support was easily broadened.
 
 A big thanks to Emil for egui, Rerun, and his prompt, intelligent responses despite my inexperience in open source. I'm sure I'll be back to contribute more.
 
