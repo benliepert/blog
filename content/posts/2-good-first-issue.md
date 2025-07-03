@@ -4,11 +4,6 @@ description = "My first open source contribution"
 date = 2024-09-30
 +++
 
-# TODO:
-- [ ] (once finalized) properly capitalize section names & links
-    - Maybe call Learnings "closing" or "conclusion"
-- [ ] make sure you revert/don't commit config.toml change before publishing
-
 It's been a goal of mine to make an open source contribution this year. I've had my eyes on [Rerun](https://rerun.io/) for a while, as it's built using [egui](https://github.com/emilk/egui/), which I've used in a number of projects the past few years [^1] [^2] [^3]. Rerun's visualizations are fascinating and, like egui, compile to WASM and can run on the web (see the [browser demo](https://rerun.io/viewer) examples). Their [blog post](https://rerun.io/blog/rosbag) on the Rosbag format stood out to me for its quality, reminding me of the home-grown telemetry system we use at 908 Devices and inspiring ideas for future improvements.
 
 ## Sections
@@ -17,6 +12,7 @@ It's been a goal of mine to make an open source contribution this year. I've had
 - [A Naive Solution](#a-naive-solution)
 - [A Panic](#a-panic)
 - [Solving Continued](#solving-continued)
+- [Fundamentals](#fundamentals)
 - [Validation](#validation)
 - [Code Changes](#code-changes)
 - [Adding Tests](#adding-tests)
@@ -25,15 +21,15 @@ It's been a goal of mine to make an open source contribution this year. I've had
 # Finding an Issue
 At the time of writing, there were 959 open issues in the [Rerun repository](https://github.com/rerun-io/rerun) and 13 open with the "good first issue" label. Only a few hadn't already received attention, including [#7157 Update `ndarray`](https://github.com/rerun-io/rerun/issues/7157). Cool, a major version bump for a dependency that deprecated some functions.
 
- <!-- This certainly won't require me to refactor macros on a tensor data structure ☺️. -->
-
 # Getting Started
 First I wanted to get the project building, bump the `ndarray` version, and see what goes wrong. Rerun has good developer documentation, so despite being a much larger and more complex Rust project than I've ever worked on, it was fairly quick to get up and running.
 
 I updated the `ndarray` version from 0.15 to 0.16 and rebuilt. There were a couple deprecations, but I'll focus on the deprecation of `Array::into_raw_vec()` in favor of `Array::into_raw_vec_and_offset()`.
 
 # A Naive Solution
-The function is used in a macro on `TensorData`. I haven't written more than the simplest Rust macros, nor did I really know what a tensor is despite having heard of it in e.g. TensorFlow. Well, the new function returns a tuple containing the raw vector and an offset, and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:
+The deprecated is used in a macro on `TensorData`. Essentially, it's converting between 2 data types: by extracting a vector containing the logically-ordered `ndarray::Array` (`Array` from now on) and constructing Rerun's `TensorBuffer` based on it. This idea is the focus of this blog post.
+
+I haven't written more than the simplest Rust macros, nor did I really know what a tensor is despite having heard of it in e.g. TensorFlow. Well, the new function returns a tuple containing the raw vector and an offset, and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:
 ```diff
 -     buffer: TensorBuffer::$variant(value.to_owned().into_raw_vec().into()),
 +     buffer: TensorBuffer::$variant(
@@ -67,18 +63,53 @@ With the panic resolved, I opened a PR. I heard back from Emil (Rerun co-founder
 >
 > — <cite>emilk</cite>
 
-This was a good insight - we could do better than simply preserving the existing behavior, which returned an error for non-standard layout ndarrays.
+This was a good insight - we could do better than simply preserving the existing behavior, which returned an error for non-standard layout `Array`s. But notice how he mentioned "and/or with an offset" - implying that a standard layout `Array` could have a nonzero offset. Neither of us could tell if this was possible at first, but it is, as I'll get to. So the original code also had a bug in the case of a standard layout `Array` with nonzero offset, as the offset is ignored.
 
-# Definitions
-Before moving forward, it's crucial to answer the following questions:
+# Fundamentals
+As mentioned previously, we're concerned with efficiently extracting logically ordered data form an `Array` so we can build one of Rerun's internal data structures. Before moving forward, it's crucial to answer the following fundamental questions:
 
-- Standard Layout:
-- Why did he suggest iter().collect()?
-    - because this preserves the logical order despite what may be an inconsistent underlying order in memory {a non-zero offset implies we can't pull directly from memory - WHY?}
-- Row major vs column major?
-What's slicing?
+## What's 'contiguous std order'?
 
-What's an offset?
+As the `TensorCastError::NotContiguousStdOrder` error referenced above alludes to, `Arrays` can have different memory layouts when stored. For simplicity, we can thing of 2 cases. From `ndarray`'s [docs](https://docs.rs/ndarray/latest/ndarray/enum.Order.html) for `Enum Order`:
+1. Row major or "C" order. This is synonymous with "Standard layout" ([source](https://docs.rs/ndarray/latest/ndarray/struct.ArrayBase.html#method.is_standard_layout)). Elements are contiguous in memory. For example:
+```rs
+/*
+A 2x4 matrix:
+[[1, 2, 3, 4] <- row 1
+[5, 6, 7, 8]] <- row 2
+would be stored in row major/'C'/standard layout like so:
+Note logical elements are contiguous as if you were reading
+left to right, top to bottom
+[1, 2, 3, 4, 5, 6, 7, 8]
+*/
+```
+2. Everything else. For example "Column major" or "F" order:
+```rs
+/*
+A 2x4 matrix:
+[[1, 2, 3, 4] <- row 1
+[5, 6, 7, 8]] <- row 2
+would be stored in column major/'F'like so:
+Note logical elements aren't contiguous
+[1, 5, 2, 6, 3, 7, 4, 8]
+*/
+```
+
+## Why does the order matter?
+
+To be efficient, Rerun consumes the `Array`, via `value.into_raw_vec_and_offset()`, yielding the raw vector & offset. It's this same raw vector that's used to construct `TensorData`. These operations are zero copy, and the Rust compiler tracks the owner of the underlying data as it changes. But here's the key: *`TensorData` stores a `TensorBuffer`, which holds elements in a contiguouos buffer* ([docs](https://docs.rs/rerun/latest/rerun/enum.TensorBuffer.html)). So we have 2 options:
+1. The data is already contiguous (row major/standard layout), in which case we can transfer ownership of the raw buffer directly from `ndarray` to `TensorData`'s `TensorBuffer`. Zero copy!
+2. The data isn't contigous. We need to extract the data in logical order and save it to a vector to build the `TensorBuffer`. Well, how's that done?
+
+## Why did Emil reference `.iter().collect()`?
+
+The existing code checks whether the `Array` is standard layout. Otherwise it returns an error. Emil noticed that you can still fall back to `Array`s iterator implementation to extract the logical order of elements ([docs](https://docs.rs/ndarray/latest/ndarray/type.Array.html#method.iter)). This makes sense - `ndarray` supports different layouts and provides ways to extract the logically-ordered data in all cases. This likely wasn't handled in the original code because standard layout is _standard_, as the name implies, and likely very few people, if any, were hitting the error. If they were, `ndarray` provides methods to convert to a different layout.
+
+## What's slicing?
+
+Say you want to look at a subsection of a matrix. Slicing gives you a way to do this efficently by not modifying any of the data, but instead storing some metadata about what you're looking at, like an offset:
+
+## What's an offset?
 
 Simply speaking - the index of the first logical element in the underlying vector containing the array. Take the following example:
 ```rs
@@ -131,8 +162,8 @@ Now that I'd proven we could have a standard layout array with nonzero offset, i
 
 The deprecated functions were used in areas that converted an `Array` to Rerun's `TensorData`. We essentially need to get a logically-ordered `Vec<T>` from the `Array`. My changes follow one of 2 branches in this context:
 
-1. The `Array` is standard layout. `into_raw_vec_and_offset()` guarantees that the logical element order (`.iter()`) matches the internal storage order in this case. This means that we can simply chop off the front of the `Array`s raw vector, until the offset, and return the vector that remains. This takes O(1) time.
-2. The `Array` is in a nonstandard layout. There's no shortcut here, we must collect the iterator into a vector. This takes O(n) time.
+1. The `Array` is standard layout. `into_raw_vec_and_offset()` guarantees that the logical element order (`.iter()`) matches the internal storage order in this case. This means that we can simply chop off the front of the `Array`s raw vector, until the offset, and return the vector that remains. This takes O(n) time because `drain()` on a raw vector uses a lazy iterator. However, in practice I expect `offset` to be 0 (making this a constant time operation) the majority of the time, or less than `n` if it's nonzero.
+2. The `Array` is in a nonstandard layout. There's no shortcut here, as data isn't stored contiguously. Luckily, `ndarray` provides an iterator yielding the logical order of elements that we can collect into a vector. This takes O(n) time.
 
 # Adding Tests
 I added 2 tests to cover the new cases:
