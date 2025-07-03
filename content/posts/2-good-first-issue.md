@@ -1,5 +1,5 @@
 +++
-title = "Good First Issue"
+title = "Good First Issue: My First Contribution to Rerun"
 description = "My first open source contribution"
 date = 2024-09-30
 +++
