@@ -24,12 +24,14 @@ At the time of writing, there were 959 open issues in the [Rerun repository](htt
 # Getting Started
 First I wanted to get the project building, bump the `ndarray` version, and see what goes wrong. Rerun has good developer documentation, so despite being a much larger and more complex Rust project than I've ever worked on, it was fairly quick to get up and running.
 
+But first - what's `ndarray`? In short - it stands for n-dimensional array. This crate is used for operations on matrices and provides an API similar to the popular Python `numpy` library. Rerun is often used in ML & machine vision workflows, so supporting matrices is essential.
+
 I updated the `ndarray` version from 0.15 to 0.16 and rebuilt. There were a couple deprecations, but I'll focus on the deprecation of `Array::into_raw_vec()` in favor of `Array::into_raw_vec_and_offset()`.
 
 # A Naive Solution
-The deprecated function is used in a macro on `TensorData`. Essentially, it's converting between 2 data types: by extracting a vector containing the logically-ordered elements from an `ndarray::Array` (`Array` from now on) and constructing Rerun's `TensorBuffer` based on them. This idea is the focus of this blog post.
+The deprecated function is used in a macro on `TensorData`. For the sake of this post, you can think of a tensor as logically equivalent to an n-dimensional array like `ndarray::Array`. Essentially, the function we're updating converts between 2 data types: by extracting a vector containing the logically-ordered elements from an `ndarray::Array` (`Array` from now on) and constructing Rerun's `TensorBuffer` based on them. This idea is the focus of this blog post.
 
-I haven't written more than the simplest Rust macros, nor did I really know what a tensor is despite having heard of it in e.g. TensorFlow. Well, the new function returns a tuple containing the raw vector and an offset, and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:
+The new function returns a tuple containing the raw vector and an offset, and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:
 ```diff
 -     buffer: TensorBuffer::$variant(value.to_owned().into_raw_vec().into()),
 +     buffer: TensorBuffer::$variant(
