@@ -1,5 +1,5 @@
 +++
-title = "Calling Rust from C++: A minimal example"
+title = "Calling Rust from C++: A minimal example with Docker for armv7"
 description = "Calling Rust from C++, cross compilation with Docker"
 date = 2024-08-27
 +++
