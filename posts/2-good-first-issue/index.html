@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Good First Issue: My First Contribution to Rerun :: </title>
+    <link rel="stylesheet" href="https://benliepert.github.io/blog/global.css">
+    <meta name="description" content="My first open source contribution">
+    <meta property="og:title" content="Good First Issue: My First Contribution to Rerun :: ">
+    <meta property="og:description" content="My first open source contribution">
+    <meta property="og:type" content="website">
+    
+    <meta property="og:url" content="https://benliepert.github.io/blog/posts/2-good-first-issue/">
+    <link rel="canonical" href="https://benliepert.github.io/blog/posts/2-good-first-issue/">
+    
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:creator" content="@">
+    <link rel="icon" href="">
+    <meta name="theme-color" content="#1F1E1E">
+  </head>
+  <body>
+    <header>
+      <nav>
+      
+        <a href="/blog/">ABOUT</a>
+      
+        <a href="/blog/posts/">POSTS</a>
+      
+      </nav>
+      <hr>
+    </header>
+    <main>
+      
+      <article>
+        <h1><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/">Good First Issue: My First Contribution to Rerun</a></h1>
+        <small>
+          <time datetime="2024-09-30">September 30, 2024</time>
+          by <a href="https://benliepert.github.io/blog/">benliepert</a>
+        </small>
+        <p>It's been a goal of mine to make an open source contribution this year. I've had my eyes on <a href="https://rerun.io/">Rerun</a> for a while, as it's built using <a href="https://github.com/emilk/egui/">egui</a>, which I've used in a number of projects the past few years <sup class="footnote-reference"><a href="#1">1</a></sup> <sup class="footnote-reference"><a href="#2">2</a></sup> <sup class="footnote-reference"><a href="#3">3</a></sup>. Rerun's visualizations are fascinating and, like egui, compile to WASM and can run on the web (see the <a href="https://rerun.io/viewer">browser demo</a> examples). Their <a href="https://rerun.io/blog/rosbag">blog post</a> on the Rosbag format stood out to me for its quality, reminding me of the home-grown telemetry system we use at 908 Devices and inspiring ideas for future improvements. This post covers my first contribution to the Rerun project.</p>
+<h2 id="sections">Sections</h2>
+<ul>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#finding-an-issue">Finding an Issue</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#getting-started">Getting Started</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#a-naive-solution">A Naive Solution</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#a-panic">A Panic</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#guidance">Guidance</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#fundamentals">Fundamentals</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#validation">Validation</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#code-changes">Code Changes</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#adding-tests">Adding Tests</a></li>
+<li><a href="https://benliepert.github.io/blog/posts/2-good-first-issue/#conclusion">Conclusion</a></li>
+</ul>
+<h1 id="finding-an-issue">Finding an Issue</h1>
+<p>At the time of writing, there were 959 open issues in the <a href="https://github.com/rerun-io/rerun">Rerun repository</a> and 13 open with the "good first issue" label. Only a few hadn't already received attention, including <a href="https://github.com/rerun-io/rerun/issues/7157">#7157 Update <code>ndarray</code></a>. Cool, a major version bump for a dependency that deprecated some functions.</p>
+<h1 id="getting-started">Getting Started</h1>
+<p>First I wanted to get the project building, bump the <code>ndarray</code> version, and see what goes wrong. Rerun has good developer documentation, so despite being a much larger and more complex Rust project than I've ever worked on, it was fairly quick to get up and running.</p>
+<p>But first - what's <code>ndarray</code>? In short - it stands for n-dimensional array. This crate is used for operations on matrices and provides an API similar to the popular Python <code>numpy</code> library. Rerun is often used in ML &amp; machine vision workflows, so supporting matrices is essential.</p>
+<p>I updated the <code>ndarray</code> version from 0.15 to 0.16 and rebuilt. There were a couple deprecations, but I'll focus on the deprecation of <code>Array::into_raw_vec()</code> in favor of <code>Array::into_raw_vec_and_offset()</code>.</p>
+<h1 id="a-naive-solution">A Naive Solution</h1>
+<p>The deprecated function is used in a macro on <code>TensorData</code>. For the sake of this post, you can think of a tensor as logically equivalent to an n-dimensional array like <code>ndarray::Array</code>. Essentially, the function we're updating converts between 2 data types: it constructs Rerun's <code>TensorBuffer</code> from the logically oredered elements of an <code>ndarray::Array</code> (<code>Array</code> from now on).</p>
+<p>The new function returns a tuple containing the raw vector and an offset, and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:</p>
+<pre data-lang="diff" style="background-color:#2b303b;color:#6c7079;" class="language-diff "><code class="language-diff" data-lang="diff"><span style="color:#eb6772;">-     buffer: TensorBuffer::$variant(value.to_owned().into_raw_vec().into()),
+</span><span style="color:#9acc76;">+     buffer: TensorBuffer::$variant(
+</span><span style="color:#9acc76;">+         value.to_owned().into_raw_vec_and_offset().0.into()),
+</span></code></pre>
+<p>effectively ignoring the offset by only taking the first element of the tuple returned. I still had the rerun viewer running from my initial build, so I ctrl-c'd out of it on the command line.</p>
+<h1 id="a-panic">A Panic</h1>
+<p>Let's build the code again with this change.</p>
+<pre data-lang="s" style="background-color:#2b303b;color:#6c7079;" class="language-s "><code class="language-s" data-lang="s"><span style="color:#abb2bf;">...
+</span><span style="color:#abb2bf;">[2024-09-04T17:08:46Z DEBUG re_viewer_context::store_hub] Cloning Welcome screen as f1690a39-5c05-430e-a022-976e2a49fa9c the active blueprint for Welcome screen to Welcome screen
+</span><span style="color:#abb2bf;">
+</span><span style="color:#abb2bf;">thread &#39;main&#39; panicked at &#39;assertion failed: size.x &gt;= 0.0 &amp;&amp; size.y &gt;= 0.0&#39;
+</span><span style="color:#abb2bf;">egui/src/layout.rs:395
+</span><span style="color:#abb2bf;">...
+</span></code></pre>
+<p>Uh oh. This persisted after a <code>cargo clean</code> and a rebuild, so I suspected Rerun was storing state on disk and loading it in as the app started. This state was probably corrupted by my impolite ctrl-c. It turns out Rerun stores UI state in something called a blueprint, which describes how data is visualized. I found the blueprint file in use and deleted it. This resolved the panic.</p>
+<blockquote>
+<p>I should have preserved the file and created a ticket for reproduction. The panic itself was down in the egui layout code, and traced back to adding a clickable image containing a website link on the top panel. As far as I could tell, the image itself was sized ok but was being placed in an area of negative size.</p>
+</blockquote>
+<h1 id="guidance">Guidance</h1>
+<p>With the panic resolved, I opened a PR. I heard back from Emil (Rerun co-founder &amp; egui creator) within a day:</p>
+<blockquote>
+<p>We shouldn't ignore the offset. If it is non-zero, we may have a problem.
+We should at least return <code>TensorCastError::NotContiguousStdOrder</code> in that case.</p>
+<p>However, ideally we should handle arrays that are not in standard layout (and/or with an offset) by calling .iter().collect() instead of bailing.</p>
+<p>— <cite>emilk</cite></p>
+</blockquote>
+<p>This was a good insight - we could do better than simply preserving the existing behavior, which returned an error for non-standard layout <code>Array</code>s. But notice how he mentioned "and/or with an offset" - implying that a standard layout <code>Array</code> could have a nonzero offset. Neither of us could tell if this was possible at first.</p>
+<blockquote>
+<p>It turns out it is - stay tuned. The original code had a bug in the case of a standard layout <code>Array</code> with nonzero offset, as the offset is ignored.</p>
+</blockquote>
+<h1 id="fundamentals">Fundamentals</h1>
+<p>As mentioned previously, we're concerned with efficiently extracting logically ordered data form an <code>Array</code> so we can build one of Rerun's internal data structures. Before moving forward, it's crucial to answer the following fundamental questions:</p>
+<h2 id="what-s-contiguous-std-order">What's 'contiguous std order'?</h2>
+<p>As the <code>TensorCastError::NotContiguousStdOrder</code> error referenced above alludes to, <code>Arrays</code> can have different memory layouts when stored. For simplicity, we can think of 2 cases:</p>
+<ol>
+<li>Row major or "C" order (<a href="https://docs.rs/ndarray/latest/ndarray/enum.Order.html">docs</a>). This is synonymous with "Standard layout" (<a href="https://docs.rs/ndarray/latest/ndarray/struct.ArrayBase.html#method.is_standard_layout">source</a>). Elements are contiguous in memory. For example:</li>
+</ol>
+<pre data-lang="rs" style="background-color:#2b303b;color:#6c7079;" class="language-rs "><code class="language-rs" data-lang="rs"><span style="font-style:italic;color:#5f697a;">/*
+</span><span style="font-style:italic;color:#5f697a;">A 2x4 matrix:
+</span><span style="font-style:italic;color:#5f697a;">[[1, 2, 3, 4] &lt;- row 1
+</span><span style="font-style:italic;color:#5f697a;">[5, 6, 7, 8]] &lt;- row 2
+</span><span style="font-style:italic;color:#5f697a;">would be stored in row major/&#39;C&#39;/standard layout like so:
+</span><span style="font-style:italic;color:#5f697a;">Note logical elements are contiguous as if you were reading
+</span><span style="font-style:italic;color:#5f697a;">left to right, top to bottom
+</span><span style="font-style:italic;color:#5f697a;">[1, 2, 3, 4, 5, 6, 7, 8]
+</span><span style="font-style:italic;color:#5f697a;">*/
+</span></code></pre>
+<ol start="2">
+<li>Everything else. For example "Column major" or "F" order:</li>
+</ol>
+<pre data-lang="rs" style="background-color:#2b303b;color:#6c7079;" class="language-rs "><code class="language-rs" data-lang="rs"><span style="font-style:italic;color:#5f697a;">/*
+</span><span style="font-style:italic;color:#5f697a;">A 2x4 matrix:
+</span><span style="font-style:italic;color:#5f697a;">[[1, 2, 3, 4] &lt;- row 1
+</span><span style="font-style:italic;color:#5f697a;">[5, 6, 7, 8]] &lt;- row 2
+</span><span style="font-style:italic;color:#5f697a;">would be stored in column major/&#39;F&#39;like so:
+</span><span style="font-style:italic;color:#5f697a;">Note logical elements aren&#39;t contiguous
+</span><span style="font-style:italic;color:#5f697a;">[1, 5, 2, 6, 3, 7, 4, 8]
+</span><span style="font-style:italic;color:#5f697a;">*/
+</span></code></pre>
+<h2 id="why-does-the-order-matter">Why does the order matter?</h2>
+<p>To be efficient, Rerun consumes the <code>Array</code>, via <code>value.into_raw_vec_and_offset()</code>, yielding the raw vector &amp; offset. It's this same raw vector that's used to construct <code>TensorData</code>. These operations are zero copy, and the Rust compiler tracks the owner of the underlying data as it changes. But here's the key: <em><code>TensorData</code> stores a <code>TensorBuffer</code>, which holds elements in a contiguouos buffer</em> (<a href="https://docs.rs/rerun/latest/rerun/enum.TensorBuffer.html">docs</a>). So we have 2 options:</p>
+<ol>
+<li>The data is already contiguous (row major/standard layout), in which case we can transfer ownership of the raw buffer directly from the <code>Array</code> to <code>TensorData</code>'s <code>TensorBuffer</code>. Zero copy!</li>
+<li>The data isn't contigous. We need to extract the data in logical order and save it to a vector to build the <code>TensorBuffer</code>. See below.</li>
+</ol>
+<h2 id="why-did-emil-reference-iter-collect">Why did Emil reference <code>.iter().collect()</code>?</h2>
+<p>The existing code checks whether the <code>Array</code> is standard layout. Otherwise it returns an error. Emil noticed that you can still fall back to <code>Array</code>'s iterator implementation to extract the logical order of elements (<a href="https://docs.rs/ndarray/latest/ndarray/type.Array.html#method.iter">docs</a>). This makes sense - <code>ndarray</code> supports different layouts and provides ways to extract the logically-ordered data in all cases. This likely wasn't handled in the original code because standard layout is <em>standard</em>, as the name implies, and likely very few people, if any, were hitting the error. If they were, <code>ndarray</code> provides methods to convert to a different layout.</p>
+<h2 id="what-s-slicing">What's slicing?</h2>
+<p>Say you want to look at a subsection of a matrix. Slicing gives you a way to do this efficently by not modifying any of the data, but instead by storing some metadata about what you're looking at, like an offset:</p>
+<h2 id="what-s-an-offset">What's an offset?</h2>
+<p>Simply speaking - the index of the first logical element in the underlying vector containing the array. Take the following example:</p>
+<pre data-lang="rs" style="background-color:#2b303b;color:#6c7079;" class="language-rs "><code class="language-rs" data-lang="rs"><span style="color:#cd74e8;">let</span><span style="color:#abb2bf;"> v </span><span style="color:#adb7c9;">= </span><span style="color:#abb2bf;">vec![</span><span style="color:#db9d63;">1</span><span style="color:#abb2bf;">,</span><span style="color:#db9d63;">2</span><span style="color:#abb2bf;">,</span><span style="color:#db9d63;">3</span><span style="color:#abb2bf;">]; </span><span style="font-style:italic;color:#5f697a;">// offset 0. The first element (1) is at index 0 + 0 (the offset)
+</span></code></pre>
+<p>However, things get more complicated in a library like <code>ndarray</code> that needs to represent n-dimensional arrays while striving for performance. When <em>slicing</em> an array, <code>ndarray</code> doesn't clone all of the data, but rather retains a pointer to the first element in the raw buffer where the data already lives. Given an array of elements with type <code>T</code>, the offset can be computed by subtracting a pointer to the start of the raw buffer from the pointer to the first element, and dividing by the size of <code>T</code>. This optimization ensures that slicing is zero-copy and retains O(1) extraction of the raw buffer.</p>
+<p>There are other related ways to end up with a non-zero offset, but the point is it's possible regardless of what underlying memory layout is used. This possibility revealed a bug in a <code>TryFrom&lt;Array&gt;</code> implementation for <code>TensorData</code>, which was blindly casting the raw buffer regardless of whether there was an offset. In practice, this could cause data sliced off an <code>Array</code> to magically reappear when converting it to <code>TensorData</code> using this trait!</p>
+<h1 id="validation">Validation</h1>
+<p>To prove programmatically that the offset can be non-zero even if the array was a standard layout, I started by creating a binary crate that depended on my local version of the <code>re_types</code> crate. This avoids re-building/linking Rerun's many dependencies while developing the fix.</p>
+<pre data-lang="toml" style="background-color:#2b303b;color:#6c7079;" class="language-toml "><code class="language-toml" data-lang="toml"><span style="font-style:italic;color:#5f697a;"># Cargo.toml in my new binary crate
+</span><span style="color:#abb2bf;">[dependencies]
+</span><span style="color:#eb6772;">re_types </span><span style="color:#abb2bf;">= { </span><span style="color:#eb6772;">path </span><span style="color:#abb2bf;">= </span><span style="color:#9acc76;">&quot;../rerun/crates/store/re_types&quot;</span><span style="color:#abb2bf;">}
+</span></code></pre>
+<p>Now I can play around with the modified macros with minimal churn!</p>
+<p>Given what we know from the last section, slicing should produce a non-zero offset. The key here is slicing into an existing owned array - if you make a slice and then take a clone, the offset will reset to zero as a new raw buffer is allocated containing <em>only</em> the sliced data.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#6c7079;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#cd74e8;">use </span><span style="color:#abb2bf;">ndarray::{Array, s};
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;">// create a 4 x 4 array with the numbers [0, 15]
+</span><span style="font-style:italic;color:#5f697a;">// [0, 1, 2, 3,
+</span><span style="font-style:italic;color:#5f697a;">//  4, 5, 6, 7,
+</span><span style="font-style:italic;color:#5f697a;">//  8, 9, 10, 11,
+</span><span style="font-style:italic;color:#5f697a;">//  12, 13, 14, 15]
+</span><span style="font-style:italic;color:#5f697a;">// Array uses std layout by default
+</span><span style="color:#cd74e8;">let</span><span style="color:#abb2bf;"> array </span><span style="color:#adb7c9;">= </span><span style="color:#abb2bf;">Array::from_iter(</span><span style="color:#db9d63;">0</span><span style="color:#adb7c9;">..</span><span style="color:#db9d63;">16</span><span style="color:#abb2bf;">).</span><span style="color:#5ebfcc;">into_shape_with_order</span><span style="color:#abb2bf;">((</span><span style="color:#db9d63;">4</span><span style="color:#abb2bf;">, </span><span style="color:#db9d63;">4</span><span style="color:#abb2bf;">)).</span><span style="color:#5ebfcc;">unwrap</span><span style="color:#abb2bf;">();
+</span><span style="color:#abb2bf;">
+</span><span style="font-style:italic;color:#5f697a;">// slice off the first row. We&#39;re only looking at the last 3 rows
+</span><span style="font-style:italic;color:#5f697a;">// but the raw buffer stays the same - we just skip the first 4 elements (this is the offset)
+</span><span style="font-style:italic;color:#5f697a;">// [4, 5, 6, 7,
+</span><span style="font-style:italic;color:#5f697a;">//  8, 9, 10, 11,
+</span><span style="font-style:italic;color:#5f697a;">//  12, 13, 14, 15]
+</span><span style="color:#cd74e8;">let</span><span style="color:#abb2bf;"> sliced_array </span><span style="color:#adb7c9;">=</span><span style="color:#abb2bf;"> array.</span><span style="color:#5ebfcc;">slice_move</span><span style="color:#abb2bf;">(s![</span><span style="color:#db9d63;">1</span><span style="color:#adb7c9;">..</span><span style="color:#abb2bf;">, </span><span style="color:#adb7c9;">..</span><span style="color:#abb2bf;">]);
+</span><span style="font-style:italic;color:#5f697a;">// layout should be identical, since the raw buffer is the same
+</span><span style="color:#abb2bf;">assert!(sliced_array.</span><span style="color:#5ebfcc;">is_standard_layout</span><span style="color:#abb2bf;">());
+</span><span style="color:#abb2bf;">
+</span><span style="color:#cd74e8;">let </span><span style="color:#abb2bf;">(</span><span style="color:#adb7c9;">_</span><span style="color:#abb2bf;">, offset) </span><span style="color:#adb7c9;">=</span><span style="color:#abb2bf;"> sliced_array.</span><span style="color:#5ebfcc;">into_raw_vec_and_offset</span><span style="color:#abb2bf;">();
+</span><span style="color:#cd74e8;">let</span><span style="color:#abb2bf;"> offset </span><span style="color:#adb7c9;">=</span><span style="color:#abb2bf;"> offset.</span><span style="color:#5ebfcc;">unwrap</span><span style="color:#abb2bf;">();
+</span><span style="color:#abb2bf;">assert!(offset </span><span style="color:#adb7c9;">&gt; </span><span style="color:#db9d63;">0</span><span style="color:#abb2bf;">);
+</span><span style="color:#abb2bf;">assert!(offset </span><span style="color:#adb7c9;">== </span><span style="color:#db9d63;">4</span><span style="color:#abb2bf;">);
+</span></code></pre>
+<blockquote>
+<p>While investigating the above code, I noticed the documentation for <code>ndarray::Array::into_raw_vec_and_offset()</code>, said the function would return 0 if the array was empty. That didn't make sense - when would the function return <code>None</code> then? It turns out the function <em>does</em> return <code>None</code> if the array is empty, as the documentation for a helper function confirmed. I created a <a href="https://github.com/rust-ndarray/ndarray/pull/1432">PR</a> which was promptly merged.</p>
+</blockquote>
+<h1 id="code-changes">Code Changes</h1>
+<p>Now that I'd proven we could have a standard layout array with nonzero offset, it was time to update the code that used the outdated functions.</p>
+<p>The deprecated functions were used in areas that converted an <code>Array</code> to Rerun's <code>TensorData</code>. We essentially need to get a logically-ordered <code>Vec&lt;T&gt;</code> from the <code>Array</code>. My changes follow one of the 2 branches mentioned earlier:</p>
+<ol>
+<li>The <code>Array</code> is standard layout. <code>into_raw_vec_and_offset()</code> guarantees that the logical element order (<code>.iter()</code>) matches the internal storage order in this case. This means that we can simply chop off the front of the <code>Array</code>s raw vector, until the offset, and return the vector that remains. This takes O(n) time because <code>drain()</code> on a raw vector uses a lazy iterator. However, in practice I expect <code>offset</code> to be 0 (making this a constant time operation) the majority of the time, or less than <code>n</code> if it's nonzero.</li>
+<li>The <code>Array</code> is in a nonstandard layout. There's no shortcut here, as data isn't stored contiguously. Luckily, <code>ndarray</code> provides an iterator yielding the logical order of elements that we can collect into a vector. This takes O(n) time.</li>
+</ol>
+<h1 id="adding-tests">Adding Tests</h1>
+<p>I added 2 tests to cover the new cases:</p>
+<ol>
+<li>Create a row major and column major version of the same underlying data. Convert both to <code>TensorData</code>, and ensure the results match.</li>
+<li>Same as above, but by first slicing into the <code>Array</code>s to produce nonzero offsets.</li>
+</ol>
+<p>I used the same underlying data for both tests, so it's implied that all <code>TensorData</code>s match. Looking back, I would have combined the cases for some extra robustness. I think it's technically possible to write a broken implementation that still passes both tests, though I'm not worried about that happening accidentally.</p>
+<h1 id="conclusion">Conclusion</h1>
+<p>This turned out to be a great first issue as it was well matched to my current skill level while still being challenging and pushing me to learn a few things outside of my comfort zone. In retrospect I shouldn't have initially assumed the existing functionality was sufficient - there were a couple bugs and support was easily broadened.</p>
+<p>A big thanks to Emil for egui, Rerun, and his prompt, intelligent responses despite my inexperience in open source. I'm sure I'll be back to contribute more.</p>
+<div class="footnote-definition" id="1"><sup class="footnote-definition-label">1</sup>
+<p><a href="https://github.com/benliepert/RDLA">RDLA</a></p>
+</div>
+<div class="footnote-definition" id="2"><sup class="footnote-definition-label">2</sup>
+<p><a href="https://github.com/benliepert/PennyPilot">PennyPilot</a></p>
+</div>
+<div class="footnote-definition" id="3"><sup class="footnote-definition-label">3</sup>
+<p><a href="https://github.com/benliepert/3dla">3DLA</a></p>
+</div>
+
+      </article>
+
+    </main>
+  </body>
+</html>
