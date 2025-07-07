@@ -29,7 +29,7 @@ But first - what's `ndarray`? In short - it stands for n-dimensional array. This
 I updated the `ndarray` version from 0.15 to 0.16 and rebuilt. There were a couple deprecations, but I'll focus on the deprecation of `Array::into_raw_vec()` in favor of `Array::into_raw_vec_and_offset()`.
 
 # A Naive Solution
-The deprecated function is used in a macro on `TensorData`. For the sake of this post, you can think of a tensor as logically equivalent to an n-dimensional array like `ndarray::Array`. Essentially, the function we're updating converts between 2 data types: by extracting a vector containing the logically-ordered elements from an `ndarray::Array` (`Array` from now on) and constructing Rerun's `TensorBuffer` based on them. This idea is the focus of this blog post.
+The deprecated function is used in a macro on `TensorData`. For the sake of this post, you can think of a tensor as logically equivalent to an n-dimensional array like `ndarray::Array`. Essentially, the function we're updating converts between 2 data types: it constructs Rerun's `TensorBuffer` from the logically oredered elements of an `ndarray::Array` (`Array` from now on).
 
 The new function returns a tuple containing the raw vector and an offset, and the existing code isn't using an offset, so it must be safe to ignore! I changed the code to:
 ```diff
@@ -51,7 +51,7 @@ thread 'main' panicked at 'assertion failed: size.x >= 0.0 && size.y >= 0.0'
 egui/src/layout.rs:395
 ...
 ```
-Uh oh. This persisted after a `cargo clean` and a rebuild, so I suspected Rerun was storing state on disk and loading it in as the app started. This state was probably corrupted by my impolite ctrl-c. It turns out Rerun stores UI state in something called a blueprint, describes how data is visualized. I found the blueprint file in use and deleted it. This resolved the panic. 
+Uh oh. This persisted after a `cargo clean` and a rebuild, so I suspected Rerun was storing state on disk and loading it in as the app started. This state was probably corrupted by my impolite ctrl-c. It turns out Rerun stores UI state in something called a blueprint, which describes how data is visualized. I found the blueprint file in use and deleted it. This resolved the panic. 
 
 > I should have preserved the file and created a ticket for reproduction. The panic itself was down in the egui layout code, and traced back to adding a clickable image containing a website link on the top panel. As far as I could tell, the image itself was sized ok but was being placed in an area of negative size.
 
