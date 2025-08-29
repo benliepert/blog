@@ -68,3 +68,6 @@ Given that `debug_assert!()` is fairly uncommon and tends not to include too muc
 
 # Rust's Diagnostics
 - [ ] decl_derive sets a custom derive macro (diagnostic_derive)
+
+# Random
+In an RSDS (PDB7) CodeView record, the 16-byte GUID is stored as little-endian for the first 3 fields, and byte order as-is for the last 8 bytes!
