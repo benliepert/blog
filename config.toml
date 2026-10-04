@@ -1,6 +1,9 @@
 # The URL the site will be built for
 base_url = "https://benliepert.github.io/blog/"
 
+# The site title, shown in the browser tab
+title = "Ben Liepert's Blog"
+
 # Whether to automatically compile all Sass files in the sass directory
 compile_sass = true
 
@@ -10,12 +13,10 @@ build_search_index = true
 theme = "d3c3nt"
 # theme = "oceanic-zen"
 
-[markdown]
-# Whether to do syntax highlighting
-# Theme can be customised by setting the `highlight_theme` variable to a theme supported by Zola
-highlight_code = true
-# Theme options: https://www.getzola.org/documentation/getting-started/configuration/#highlight_theme
-highlight_theme = "one-dark"
+[markdown.highlighting]
+# Syntax highlighting is on when this section is present.
+# Theme options: https://github.com/getzola/giallo?tab=readme-ov-file#built-in
+theme = "one-dark-pro"
 
 [extra]
 # Put all your custom variables here
